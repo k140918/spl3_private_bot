@@ -96,7 +96,15 @@ class RecruitBot(commands.Bot):
         if self.settings.dev_guild_id:
             guild = discord.Object(id=self.settings.dev_guild_id)
             self.tree.copy_global_to(guild=guild)
-            synced = await self.tree.sync(guild=guild)
+            try:
+                synced = await self.tree.sync(guild=guild)
+            except discord.Forbidden:
+                log.error(
+                    "DEV_GUILD_ID のサーバーにコマンドを登録できません (Missing Access)。"
+                    "DEV_GUILD_ID がサーバーIDで合っているか、Bot が applications.commands "
+                    "スコープ付きでそのサーバーに招待されているか確認してください"
+                )
+                raise
             log.info("synced %d commands to dev guild %s", len(synced), guild.id)
         else:
             synced = await self.tree.sync()

@@ -45,6 +45,8 @@ def main() -> int:
     except discord.LoginFailure:
         log.error("Discord login failed: DISCORD_TOKEN を確認してください")
         return 1
+    except discord.Forbidden:
+        return 1  # 原因は発生箇所でログ済み
     except discord.PrivilegedIntentsRequired:
         log.error(
             "Message Content Intent が無効です: Developer Portal > Bot で有効化するか、"
