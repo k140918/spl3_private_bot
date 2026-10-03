@@ -1,0 +1,32 @@
+[Unit]
+Description=Splatoon 3 private match recruitment Discord bot
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=splatbot
+Group=splatbot
+WorkingDirectory=/opt/splatoon-recruit-bot
+# 秘密情報は Git 管理外のこのファイルから読み込む
+EnvironmentFile=/etc/splatoon-recruit-bot/env
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/splatoon-recruit-bot/.venv/bin/python -m bot
+Restart=on-failure
+RestartSec=10
+
+# 低メモリVPS向けの上限（超えたら再起動される）
+MemoryMax=300M
+
+# ハードニング: コードは読み取り専用、data/ だけ書き込み可
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/splatoon-recruit-bot/data
+
+[Install]
+WantedBy=multi-user.target

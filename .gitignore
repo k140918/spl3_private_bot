@@ -1,0 +1,25 @@
+# 秘密情報
+.env
+.env.*
+!.env.example
+
+# データベース / 実行時データ
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+data/*
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# ログ / エディタ
+*.log
+.vscode/
+.idea/
