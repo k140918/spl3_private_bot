@@ -1,4 +1,4 @@
-"""/プラベ（募集作成）、/取消（参加取消）、/締切、/引き継ぎ。"""
+"""/プラベ（募集作成）、/取消（参加取消）、/追加、/締切、/引き継ぎ。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.models import Mode, Outcome, Recruitment, RecruitStatus
+from bot.models import Mode, Outcome, Recruitment, RecruitStatus, Source
 from bot.services.deadline import DeadlineError, format_deadline, parse_deadline
 from bot.services.recruitment_service import ChannelBusyError, to_iso, utcnow
 from bot.views.render import build_view
@@ -219,6 +219,57 @@ class RecruitCommands(commands.Cog):
             return []
         recs = await self.bot.service.list_open_in_channel(interaction.channel_id)
         return _choices(recs, current)
+
+    # ---------------- /追加 ----------------
+
+    @app_commands.command(
+        name="追加", description="プラベ募集に参加者を手動で追加します（募集作成者のみ）"
+    )
+    @app_commands.guild_only()
+    @app_commands.rename(user="ユーザー", recruitment_id="募集")
+    @app_commands.describe(
+        user="追加する人",
+        recruitment_id="対象の募集（このチャンネルの受付中の募集が1件だけなら省略可）",
+    )
+    async def add_participant(
+        self,
+        interaction: discord.Interaction,
+        user: discord.User,
+        recruitment_id: int | None = None,
+    ) -> None:
+        rec = await self._resolve_recruitment(interaction, recruitment_id)
+        if isinstance(rec, str):
+            await interaction.response.send_message(rec, ephemeral=True)
+            return
+        if not _can_manage(interaction, rec):
+            await interaction.response.send_message(
+                "参加者を追加できるのは募集作成者か「メッセージの管理」権限を持つ人だけです。",
+                ephemeral=True,
+            )
+            return
+        if user.bot:
+            await interaction.response.send_message("Botは追加できません。", ephemeral=True)
+            return
+
+        outcome = await self.bot.service.join(rec.id, user.id, Source.COMMAND)
+        replies = {
+            Outcome.JOINED: f"<@{user.id}> を参加者に追加しました。",
+            Outcome.ALREADY_JOINED: f"<@{user.id}> はすでに参加しています。",
+            Outcome.FULL: "満員のため追加できません。",
+            Outcome.NOT_OPEN: "この募集は終了しています。",
+            Outcome.NOT_FOUND: "募集が見つかりません。",
+        }
+        await interaction.response.send_message(replies[outcome], ephemeral=True)
+        if outcome is Outcome.JOINED:
+            log.info("manual add recruitment=%s target=%s by=%s", rec.id, user.id, interaction.user.id)
+            self.bot.member_names.remember(interaction.guild_id, user)
+            await self.bot.updater.refresh(rec.id)
+
+    @add_participant.autocomplete("recruitment_id")
+    async def _add_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        return await self._recruitment_autocomplete(interaction, current)
 
     # ---------------- /締切 ----------------
 

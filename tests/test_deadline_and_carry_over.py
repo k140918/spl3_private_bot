@@ -129,6 +129,22 @@ async def test_migration_from_v1_adds_deadline_column(tmp_path):
         await conn.close()
 
 
+# ---- /追加（手動追加は Source.COMMAND の join） ----
+
+
+async def test_manual_add_respects_capacity_and_deadline(clocked):
+    service, now = clocked
+    rec = await _create(service, capacity=2, deadline=jst(2026, 10, 11, 21, 0))
+    assert await service.join(rec.id, 1, Source.COMMAND) is Outcome.JOINED
+    assert await service.join(rec.id, 1, Source.COMMAND) is Outcome.ALREADY_JOINED
+    assert await service.join(rec.id, 2, Source.COMMAND) is Outcome.FULL
+    await service.leave(rec.id, 1)
+    now[0] = jst(2026, 10, 11, 21, 0)
+    assert await service.join(rec.id, 2, Source.COMMAND) is Outcome.NOT_OPEN
+    sources = {p.user_id: p.source for p in await service.list_participants(rec.id)}
+    assert sources == {CREATOR: Source.CREATOR}
+
+
 # ---- 引き継ぎ ----
 
 
