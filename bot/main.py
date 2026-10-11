@@ -20,6 +20,7 @@ from bot.services.context_buffer import ContextBuffer
 from bot.services.message_intent import IntentSettings, MessageIntentProcessor
 from bot.services.recruitment_service import RecruitmentService
 from bot.views.buttons import RecruitButton
+from bot.views.member_names import MemberNameResolver
 from bot.views.updater import RecruitMessageUpdater
 
 log = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ def build_intents(settings: Settings) -> discord.Intents:
 class RecruitBot(commands.Bot):
     service: RecruitmentService
     updater: RecruitMessageUpdater
+    member_names: MemberNameResolver
     context_buffer: ContextBuffer | None = None
 
     def __init__(self, settings: Settings) -> None:
@@ -61,7 +63,8 @@ class RecruitBot(commands.Bot):
         s = self.settings
         self._db = await connect(s.db_path)
         self.service = RecruitmentService(RecruitmentRepository(self._db))
-        self.updater = RecruitMessageUpdater(self, self.service)
+        self.member_names = MemberNameResolver(self)
+        self.updater = RecruitMessageUpdater(self, self.service, self.member_names)
 
         self.add_dynamic_items(RecruitButton)
         await self.add_cog(RecruitCommands(self))

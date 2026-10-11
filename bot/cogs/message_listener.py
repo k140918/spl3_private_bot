@@ -58,4 +58,5 @@ class MessageListener(commands.Cog):
             except discord.HTTPException as e:
                 log.warning("Discord API error on reaction status=%s code=%s", e.status, e.code)
         if result.changed:
+            self.bot.member_names.remember(message.guild.id, message.author)
             await self.bot.updater.refresh(result.recruitment_id)

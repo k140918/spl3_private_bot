@@ -60,6 +60,7 @@ class RecruitButton(
 
     async def callback(self, interaction: discord.Interaction) -> None:
         bot = cast("RecruitBot", interaction.client)
+        bot.member_names.remember(interaction.guild_id, interaction.user)
         if self.action == "join":
             outcome = await bot.service.join(self.recruitment_id, interaction.user.id, Source.BUTTON)
         else:

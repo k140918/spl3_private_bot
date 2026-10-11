@@ -11,7 +11,7 @@ from discord.ext import commands
 
 from bot.models import Mode, Outcome, Recruitment, RecruitStatus
 from bot.services.recruitment_service import ChannelBusyError
-from bot.views.render import build_embed, build_view
+from bot.views.render import build_view
 
 if TYPE_CHECKING:
     from bot.main import RecruitBot
@@ -118,9 +118,11 @@ class RecruitCommands(commands.Cog):
             )
             return
 
+        self.bot.member_names.remember(interaction.guild_id, interaction.user)
         participants = await self.bot.service.list_participants(rec.id)
+        embed = await self.bot.updater.build_embed(rec, participants)
         try:
-            message = await channel.send(embed=build_embed(rec, participants), view=build_view(rec))
+            message = await channel.send(embed=embed, view=build_view(rec))
         except discord.HTTPException as e:
             log.warning(
                 "Discord API error on post id=%s status=%s code=%s", rec.id, e.status, e.code

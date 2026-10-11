@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import discord
 
 from bot.models import Mode, Participant, ParticipantStatus, Recruitment
 from bot.views.buttons import RecruitButton
+from bot.views.member_names import UNKNOWN_NAME
 
 _HOW_TO_JOIN = {
     Mode.BUTTON: "「参加する」ボタンで参加\n取り消し: 「参加取消」ボタン / `/取消`",
@@ -27,7 +30,10 @@ def _format_start(start_time: str) -> str:
     return start_time if start_time.endswith(("～", "〜", "~")) else f"{start_time}～"
 
 
-def build_embed(rec: Recruitment, participants: list[Participant]) -> discord.Embed:
+def build_embed(
+    rec: Recruitment, participants: list[Participant], names: Mapping[int, str]
+) -> discord.Embed:
+    """names: user_id -> エスケープ済みの表示名（MemberNameResolver.resolve の結果）。"""
     joined = [p for p in participants if p.status is ParticipantStatus.JOINED]
     waitlist = [p for p in participants if p.status is ParticipantStatus.WAITLIST]
 
@@ -35,11 +41,11 @@ def build_embed(rec: Recruitment, participants: list[Participant]) -> discord.Em
     if rec.start_time:
         lines.append(f"⏰ {_format_start(rec.start_time)}")
     lines.append(f"👥 参加者 {len(joined)}/{rec.capacity}")
-    # メンション形式なら表示名の変更に自動で追従する（AllowedMentions.none() で通知はしない）
-    lines.extend(f"・<@{p.user_id}>" for p in joined)
+    # Embed 内の <@ID> は閲覧者のクライアント次第で ID のまま表示されるため、表示名を直接書く
+    lines.extend(f"・{names.get(p.user_id, UNKNOWN_NAME)}" for p in joined)
     if waitlist:
         lines.append(f"\n📝 補欠 {len(waitlist)}")
-        lines.extend(f"・<@{p.user_id}>" for p in waitlist)
+        lines.extend(f"・{names.get(p.user_id, UNKNOWN_NAME)}" for p in waitlist)
 
     title = f"🎮 {rec.title}"
     if not rec.is_open:
