@@ -1,4 +1,4 @@
-"""/プラベ（募集作成）と /取消（参加取消）。"""
+"""/プラベ（募集作成）、/取消（参加取消）、/締切、/引き継ぎ。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot.models import Mode, Outcome, Recruitment, RecruitStatus
-from bot.services.recruitment_service import ChannelBusyError
+from bot.services.deadline import DeadlineError, format_deadline, parse_deadline
+from bot.services.recruitment_service import ChannelBusyError, to_iso, utcnow
 from bot.views.render import build_view
 
 if TYPE_CHECKING:
@@ -48,6 +49,23 @@ def _missing_permissions(
     return missing
 
 
+def _can_manage(interaction: discord.Interaction, rec: Recruitment) -> bool:
+    """募集作成者か「メッセージの管理」権限を持つ人。"""
+    return interaction.user.id == rec.creator_user_id or interaction.permissions.manage_messages
+
+
+def _choices(
+    recs: list[Recruitment], current: str, suffix: str = ""
+) -> list[app_commands.Choice[int]]:
+    choices = []
+    for r in recs:
+        label = f"#{r.id} {r.title}" + (f" {r.start_time}" if r.start_time else "") + suffix
+        if current and current not in label:
+            continue
+        choices.append(app_commands.Choice(name=label[:100], value=r.id))
+    return choices[:25]
+
+
 class RecruitCommands(commands.Cog):
     def __init__(self, bot: RecruitBot) -> None:
         self.bot = bot
@@ -56,12 +74,15 @@ class RecruitCommands(commands.Cog):
 
     @app_commands.command(name="プラベ", description="スプラトゥーン3のプライベートマッチ参加者を募集します")
     @app_commands.guild_only()
-    @app_commands.rename(mode="方式", capacity="定員", start_time="開始時間", title="タイトル")
+    @app_commands.rename(
+        mode="方式", capacity="定員", start_time="開始時間", title="タイトル", deadline="締切"
+    )
     @app_commands.describe(
         mode="参加方法（省略時: ボタン）",
         capacity="定員（2〜10、省略時: 8）",
         start_time="開始時間（例: 21:00）",
         title="タイトル（省略時: プラベ募集）",
+        deadline="締切時刻（例: 22:30 / 10/12 22:30）。省略時は作成から一定時間で自動終了",
     )
     @app_commands.choices(
         mode=[
@@ -77,6 +98,7 @@ class RecruitCommands(commands.Cog):
         capacity: app_commands.Range[int, 2, 10] = DEFAULT_CAPACITY,
         start_time: app_commands.Range[str, 1, 20] | None = None,
         title: app_commands.Range[str, 1, 50] | None = None,
+        deadline: app_commands.Range[str, 1, 20] | None = None,
     ) -> None:
         assert interaction.guild_id is not None and interaction.channel_id is not None
         selected = Mode(mode.value) if mode else Mode.BUTTON
@@ -95,6 +117,11 @@ class RecruitCommands(commands.Cog):
                 ephemeral=True,
             )
             return
+        try:
+            deadline_dt = parse_deadline(deadline, utcnow()) if deadline else None
+        except DeadlineError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
         try:
@@ -106,6 +133,7 @@ class RecruitCommands(commands.Cog):
                 mode=selected,
                 capacity=capacity,
                 start_time=_clean(start_time),
+                deadline=deadline_dt,
             )
         except ChannelBusyError as e:
             existing = f"（募集ID: {e.existing.id}）" if e.existing else ""
@@ -132,7 +160,8 @@ class RecruitCommands(commands.Cog):
             return
 
         await self.bot.service.attach_message(rec.id, message.id)
-        await interaction.followup.send(f"募集を作成しました（募集ID: {rec.id}）", ephemeral=True)
+        note = f"、締切: {format_deadline(rec.deadline_at)}" if rec.deadline_at else ""
+        await interaction.followup.send(f"募集を作成しました（募集ID: {rec.id}{note}）", ephemeral=True)
 
     # ---------------- /取消 ----------------
 
@@ -189,13 +218,136 @@ class RecruitCommands(commands.Cog):
         if interaction.channel_id is None:
             return []
         recs = await self.bot.service.list_open_in_channel(interaction.channel_id)
-        choices = []
-        for r in recs:
-            label = f"#{r.id} {r.title}" + (f" {r.start_time}" if r.start_time else "")
-            if current and current not in label:
-                continue
-            choices.append(app_commands.Choice(name=label[:100], value=r.id))
-        return choices[:25]
+        return _choices(recs, current)
+
+    # ---------------- /締切 ----------------
+
+    @app_commands.command(
+        name="締切", description="募集を今すぐ締め切るか、締切時刻を設定・変更します（募集作成者のみ）"
+    )
+    @app_commands.guild_only()
+    @app_commands.rename(when="時刻", recruitment_id="募集")
+    @app_commands.describe(
+        when="締切時刻（例: 22:30 / 10/12 22:30）。省略すると今すぐ締め切ります",
+        recruitment_id="対象の募集（このチャンネルの受付中の募集が1件だけなら省略可）",
+    )
+    async def close_recruitment(
+        self,
+        interaction: discord.Interaction,
+        when: app_commands.Range[str, 1, 20] | None = None,
+        recruitment_id: int | None = None,
+    ) -> None:
+        rec = await self._resolve_recruitment(interaction, recruitment_id)
+        if isinstance(rec, str):
+            await interaction.response.send_message(rec, ephemeral=True)
+            return
+        if not _can_manage(interaction, rec):
+            await interaction.response.send_message(
+                "締切を操作できるのは募集作成者か「メッセージの管理」権限を持つ人だけです。",
+                ephemeral=True,
+            )
+            return
+
+        if when is None:
+            await self.bot.service.set_status(rec.id, RecruitStatus.CLOSED)
+            if self.bot.context_buffer:
+                self.bot.context_buffer.clear(rec.channel_id)
+            log.info("recruitment closed manually id=%s by=%s", rec.id, interaction.user.id)
+            await interaction.response.send_message(
+                f"募集（ID: {rec.id}）を締め切りました。\n"
+                f"誤って締め切った場合は、新しく `/プラベ` で募集を作り、"
+                f"`/引き継ぎ 元の募集:#{rec.id}` で参加者を戻せます。",
+                ephemeral=True,
+            )
+        else:
+            try:
+                deadline = parse_deadline(when, utcnow())
+            except DeadlineError as e:
+                await interaction.response.send_message(str(e), ephemeral=True)
+                return
+            await self.bot.service.set_deadline(rec.id, deadline)
+            await interaction.response.send_message(
+                f"締切を {format_deadline(to_iso(deadline))} に設定しました。", ephemeral=True
+            )
+        await self.bot.updater.refresh(rec.id)
+
+    @close_recruitment.autocomplete("recruitment_id")
+    async def _close_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        return await self._recruitment_autocomplete(interaction, current)
+
+    # ---------------- /引き継ぎ ----------------
+
+    @app_commands.command(
+        name="引き継ぎ", description="終了した募集の参加者を、受付中の募集に追加します（募集作成者のみ）"
+    )
+    @app_commands.guild_only()
+    @app_commands.rename(source_id="元の募集", target_id="先の募集")
+    @app_commands.describe(
+        source_id="参加者を引き継ぐ、終了した募集",
+        target_id="追加先の受付中の募集（このチャンネルに1件だけなら省略可）",
+    )
+    async def carry_over(
+        self,
+        interaction: discord.Interaction,
+        source_id: int,
+        target_id: int | None = None,
+    ) -> None:
+        target = await self._resolve_recruitment(interaction, target_id)
+        if isinstance(target, str):
+            await interaction.response.send_message(target, ephemeral=True)
+            return
+        if not _can_manage(interaction, target):
+            await interaction.response.send_message(
+                "引き継ぎができるのは、追加先の募集作成者か「メッセージの管理」権限を持つ人だけです。",
+                ephemeral=True,
+            )
+            return
+        source = await self.bot.service.get(source_id)
+        if source is None or source.guild_id != interaction.guild_id:
+            await interaction.response.send_message("引き継ぎ元の募集が見つかりません。", ephemeral=True)
+            return
+        if source.is_open:
+            await interaction.response.send_message(
+                "引き継ぎ元には、終了した募集を選んでください。", ephemeral=True
+            )
+            return
+
+        result = await self.bot.service.carry_over(source.id, target.id)
+        if result.outcome is not Outcome.JOINED:
+            await interaction.response.send_message(
+                "追加先の募集は終了しています。" if result.outcome is Outcome.NOT_OPEN
+                else "募集が見つかりません。",
+                ephemeral=True,
+            )
+            return
+
+        lines = [f"募集 #{source.id} から {len(result.added)}人を追加しました。"]
+        if result.added:
+            lines.append("追加: " + " ".join(f"<@{u}>" for u in result.added))
+        if result.already_joined:
+            lines.append(f"参加済みのためスキップ: {len(result.already_joined)}人")
+        if result.full:
+            lines.append("定員のため追加できなかった人: " + " ".join(f"<@{u}>" for u in result.full))
+        await interaction.response.send_message("\n".join(lines), ephemeral=True)
+        if result.added:
+            await self.bot.updater.refresh(target.id)
+
+    @carry_over.autocomplete("source_id")
+    async def _carry_source_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        if interaction.channel_id is None:
+            return []
+        recs = await self.bot.service.list_ended_in_channel(interaction.channel_id)
+        return _choices(recs, current, suffix="（終了）")
+
+    @carry_over.autocomplete("target_id")
+    async def _carry_target_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        return await self._recruitment_autocomplete(interaction, current)
 
     async def _resolve_recruitment(
         self, interaction: discord.Interaction, recruitment_id: int | None

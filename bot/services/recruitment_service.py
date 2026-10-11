@@ -6,6 +6,7 @@ import asyncio
 import logging
 import sqlite3
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from bot.models import (
@@ -28,6 +29,14 @@ def utcnow() -> datetime:
 
 def to_iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+@dataclass
+class CarryOverResult:
+    outcome: Outcome  # JOINED: 実行できた / NOT_FOUND / NOT_OPEN
+    added: list[int] = field(default_factory=list)
+    already_joined: list[int] = field(default_factory=list)
+    full: list[int] = field(default_factory=list)  # 定員超過で追加できなかった
 
 
 class ChannelBusyError(Exception):
@@ -65,6 +74,7 @@ class RecruitmentService:
         mode: Mode,
         capacity: int,
         start_time: str | None,
+        deadline: datetime | None = None,
     ) -> Recruitment:
         if mode.uses_message:
             existing = await self._repo.find_open_message_mode(channel_id)
@@ -80,6 +90,7 @@ class RecruitmentService:
                 capacity=capacity,
                 start_time=start_time,
                 created_at=self._now(),
+                deadline_at=to_iso(deadline) if deadline else None,
             )
         except sqlite3.IntegrityError:
             # 同時に作成された場合は DB の部分 UNIQUE インデックスで弾かれる
@@ -101,12 +112,18 @@ class RecruitmentService:
         self._locks.pop(recruitment_id, None)
         log.info("recruitment status changed id=%s status=%s", recruitment_id, status.value)
 
-    async def expire_older_than(self, ttl: timedelta) -> list[Recruitment]:
-        cutoff = to_iso(self._clock() - ttl)
-        expired = await self._repo.list_open_created_before(cutoff)
-        for rec in expired:
+    async def set_deadline(self, recruitment_id: int, deadline: datetime) -> None:
+        async with self.lock(recruitment_id):
+            await self._repo.set_deadline(recruitment_id, to_iso(deadline))
+        log.info("deadline set id=%s deadline=%s", recruitment_id, to_iso(deadline))
+
+    async def close_due(self, ttl: timedelta) -> list[Recruitment]:
+        """締切を過ぎた募集と、締切なしで作成から ttl たった募集を終了にする。"""
+        now = self._clock()
+        due = await self._repo.list_open_due(to_iso(now), to_iso(now - ttl))
+        for rec in due:
             await self.set_status(rec.id, RecruitStatus.CLOSED)
-        return expired
+        return due
 
     # ---- 参照 ----
 
@@ -122,6 +139,11 @@ class RecruitmentService:
     async def list_open_in_channel(self, channel_id: int) -> list[Recruitment]:
         return await self._repo.list_open_in_channel(channel_id)
 
+    async def list_ended_in_channel(
+        self, channel_id: int, within: timedelta = timedelta(days=7)
+    ) -> list[Recruitment]:
+        return await self._repo.list_ended_in_channel(channel_id, to_iso(self._clock() - within))
+
     async def list_participants(self, recruitment_id: int) -> list[Participant]:
         return await self._repo.list_participants(recruitment_id)
 
@@ -132,7 +154,7 @@ class RecruitmentService:
             rec = await self._repo.get(recruitment_id)
             if rec is None:
                 return Outcome.NOT_FOUND
-            if not rec.is_open:
+            if not rec.accepts_at(self._now()):  # 締切時刻を過ぎていれば受け付けない
                 return Outcome.NOT_OPEN
             participants = await self._repo.list_participants(recruitment_id)
             if any(p.user_id == user_id for p in participants):
@@ -154,7 +176,7 @@ class RecruitmentService:
             rec = await self._repo.get(recruitment_id)
             if rec is None:
                 return Outcome.NOT_FOUND
-            if not rec.is_open:
+            if not rec.accepts_at(self._now()):  # 締切時刻を過ぎていれば受け付けない
                 return Outcome.NOT_OPEN
             removed = await self._repo.remove_participant(recruitment_id, user_id)
             # 補欠を導入する場合はここで先頭の WAITLIST を JOINED に繰り上げる
@@ -162,6 +184,37 @@ class RecruitmentService:
             return Outcome.NOT_JOINED
         log.info("LEAVE recruitment=%s user=%s", recruitment_id, user_id)
         return Outcome.LEFT
+
+    async def carry_over(self, source_id: int, target_id: int) -> CarryOverResult:
+        """終了した募集の参加者を、受付中の募集へ参加順のまま追加する（定員まで）。"""
+        source = await self._repo.get(source_id)
+        async with self.lock(target_id):
+            target = await self._repo.get(target_id)
+            if source is None or target is None or source.guild_id != target.guild_id:
+                return CarryOverResult(Outcome.NOT_FOUND)
+            if source.id == target.id or not target.accepts_at(self._now()):
+                return CarryOverResult(Outcome.NOT_OPEN)
+            current = await self._repo.list_participants(target_id)
+            existing = {p.user_id for p in current}
+            joined = sum(1 for p in current if p.status is ParticipantStatus.JOINED)
+            result = CarryOverResult(Outcome.JOINED)
+            for p in await self._repo.list_participants(source_id):
+                if p.status is not ParticipantStatus.JOINED:
+                    continue
+                if p.user_id in existing:
+                    result.already_joined.append(p.user_id)
+                elif joined >= target.capacity:
+                    result.full.append(p.user_id)
+                elif await self._repo.add_participant(
+                    target_id, p.user_id, ParticipantStatus.JOINED, Source.COMMAND, self._now()
+                ):
+                    result.added.append(p.user_id)
+                    joined += 1
+        log.info(
+            "carry over source=%s target=%s added=%d already=%d full=%d",
+            source_id, target_id, len(result.added), len(result.already_joined), len(result.full),
+        )
+        return result
 
     # ---- AI判定ログ ----
 

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 import discord
 
 from bot.models import Mode, Participant, ParticipantStatus, Recruitment
+from bot.services.deadline import format_deadline
 from bot.views.buttons import RecruitButton
 from bot.views.member_names import UNKNOWN_NAME
 
@@ -40,6 +41,8 @@ def build_embed(
     lines: list[str] = []
     if rec.start_time:
         lines.append(f"⏰ {_format_start(rec.start_time)}")
+    if rec.deadline_at:
+        lines.append(f"⏳ 締切 {format_deadline(rec.deadline_at)}")
     lines.append(f"👥 参加者 {len(joined)}/{rec.capacity}")
     # Embed 内の <@ID> は閲覧者のクライアント次第で ID のまま表示されるため、表示名を直接書く
     lines.extend(f"・{names.get(p.user_id, UNKNOWN_NAME)}" for p in joined)

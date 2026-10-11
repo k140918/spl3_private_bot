@@ -19,7 +19,7 @@ from bot.models import (
 
 _RECRUIT_COLS = (
     "id, guild_id, channel_id, message_id, creator_user_id, title, mode, capacity, "
-    "start_time, status, created_at, closed_at"
+    "start_time, status, created_at, closed_at, deadline_at"
 )
 
 
@@ -37,6 +37,7 @@ def _to_recruitment(row: Any) -> Recruitment:
         status=RecruitStatus(row["status"]),
         created_at=row["created_at"],
         closed_at=row["closed_at"],
+        deadline_at=row["deadline_at"],
     )
 
 
@@ -69,6 +70,7 @@ class RecruitmentRepository:
         capacity: int,
         start_time: str | None,
         created_at: str,
+        deadline_at: str | None = None,
     ) -> int:
         """募集を作成し、作成者を参加者として登録する（1トランザクション）。
 
@@ -78,10 +80,10 @@ class RecruitmentRepository:
             try:
                 cur = await self._conn.execute(
                     "INSERT INTO recruitments (guild_id, channel_id, creator_user_id, title, mode, "
-                    "capacity, start_time, status, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+                    "capacity, start_time, status, created_at, deadline_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)",
                     (guild_id, channel_id, creator_user_id, title, mode.value, capacity,
-                     start_time, created_at),
+                     start_time, created_at, deadline_at),
                 )
                 rid = cur.lastrowid
                 await self._conn.execute(
@@ -99,6 +101,11 @@ class RecruitmentRepository:
     async def set_message_id(self, recruitment_id: int, message_id: int) -> None:
         await self._write(
             "UPDATE recruitments SET message_id = ? WHERE id = ?", (message_id, recruitment_id)
+        )
+
+    async def set_deadline(self, recruitment_id: int, deadline_at: str | None) -> None:
+        await self._write(
+            "UPDATE recruitments SET deadline_at = ? WHERE id = ?", (deadline_at, recruitment_id)
         )
 
     async def update_status(
@@ -133,11 +140,24 @@ class RecruitmentRepository:
             (channel_id,),
         )
 
-    async def list_open_created_before(self, cutoff_iso: str) -> list[Recruitment]:
+    async def list_open_due(self, now_iso: str, ttl_cutoff_iso: str) -> list[Recruitment]:
+        """締切を過ぎた募集と、締切なしで作成から一定時間たった募集。"""
+        return await self._fetch_all(
+            f"SELECT {_RECRUIT_COLS} FROM recruitments WHERE status = 'open' AND ("
+            "(deadline_at IS NOT NULL AND deadline_at <= ?) OR "
+            "(deadline_at IS NULL AND created_at < ?)) ORDER BY id",
+            (now_iso, ttl_cutoff_iso),
+        )
+
+    async def list_ended_in_channel(
+        self, channel_id: int, since_iso: str, limit: int = 25
+    ) -> list[Recruitment]:
+        """引き継ぎ元の候補: このチャンネルで終了・取り消しになった最近の募集。"""
         return await self._fetch_all(
             f"SELECT {_RECRUIT_COLS} FROM recruitments "
-            "WHERE status = 'open' AND created_at < ? ORDER BY id",
-            (cutoff_iso,),
+            "WHERE channel_id = ? AND status != 'open' AND created_at >= ? "
+            "ORDER BY id DESC LIMIT ?",
+            (channel_id, since_iso, limit),
         )
 
     # ---- 参加者 ----

@@ -66,10 +66,15 @@ class Recruitment:
     status: RecruitStatus
     created_at: str
     closed_at: str | None = None
+    deadline_at: str | None = None  # UTC ISO8601。None なら作成からの経過時間で自動終了
 
     @property
     def is_open(self) -> bool:
         return self.status is RecruitStatus.OPEN
+
+    def accepts_at(self, now_iso: str) -> bool:
+        """受付中で、締切を過ぎていない。"""
+        return self.is_open and (self.deadline_at is None or now_iso < self.deadline_at)
 
 
 @dataclass(frozen=True)

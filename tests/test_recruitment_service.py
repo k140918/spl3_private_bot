@@ -100,7 +100,7 @@ async def test_message_mode_slot_frees_after_close(service):
     await make_recruitment(service, mode=Mode.MESSAGE)
 
 
-async def test_expire_older_than():
+async def test_close_due_without_deadline_uses_ttl():
     now = [datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)]
     conn = await connect(":memory:")
     try:
@@ -109,7 +109,7 @@ async def test_expire_older_than():
         now[0] += timedelta(hours=5)
         new = await make_recruitment(service, mode=Mode.BUTTON)
         now[0] += timedelta(hours=2)
-        expired = await service.expire_older_than(timedelta(hours=6))
+        expired = await service.close_due(timedelta(hours=6))
         assert [r.id for r in expired] == [old.id]
         assert (await service.get(old.id)).status is RecruitStatus.CLOSED
         assert (await service.get(new.id)).is_open

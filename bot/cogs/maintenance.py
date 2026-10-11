@@ -27,11 +27,11 @@ class Maintenance(commands.Cog):
     async def cog_unload(self) -> None:
         self.expire_loop.cancel()
 
-    @tasks.loop(minutes=10)
+    @tasks.loop(minutes=1)  # 締切時刻の判定精度。1分ごとの軽いSQLだけなので負荷は小さい
     async def expire_loop(self) -> None:
         ttl = timedelta(hours=self.bot.settings.recruit_ttl_hours)
         try:
-            expired = await self.bot.service.expire_older_than(ttl)
+            expired = await self.bot.service.close_due(ttl)
         except Exception:
             log.exception("expire task failed")
             return
