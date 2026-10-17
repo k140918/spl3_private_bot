@@ -84,3 +84,8 @@ class Participant:
     status: ParticipantStatus
     source: Source
     joined_at: str
+    guest_name: str | None = None  # サーバーにいない人を名前だけで登録した場合（user_id は負数）
+
+    @property
+    def is_guest(self) -> bool:
+        return self.guest_name is not None

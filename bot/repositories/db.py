@@ -7,7 +7,7 @@ from pathlib import Path
 import aiosqlite
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 async def connect(path: Path | str) -> aiosqlite.Connection:
@@ -35,4 +35,9 @@ async def migrate(conn: aiosqlite.Connection) -> None:
         await conn.execute("ALTER TABLE recruitments ADD COLUMN deadline_at TEXT")
         await conn.execute("PRAGMA user_version = 2")
         await conn.commit()
-    # 将来スキーマを変える場合は if version < 3: ... を追加する
+    if version < 3:
+        # v3: ゲスト参加者（サーバーにいない人）の名前。Discord ユーザーは NULL
+        await conn.execute("ALTER TABLE participants ADD COLUMN guest_name TEXT")
+        await conn.execute("PRAGMA user_version = 3")
+        await conn.commit()
+    # 将来スキーマを変える場合は if version < 4: ... を追加する

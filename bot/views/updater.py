@@ -31,7 +31,9 @@ class RecruitMessageUpdater:
         self, rec: Recruitment, participants: list[Participant]
     ) -> discord.Embed:
         """参加者の表示名を取得して Embed を組み立てる（初回投稿・更新で共通）。"""
-        names = await self._names.resolve(rec.guild_id, [p.user_id for p in participants])
+        # ゲストは Discord ユーザーではないので問い合わせない
+        user_ids = [p.user_id for p in participants if not p.is_guest]
+        names = await self._names.resolve(rec.guild_id, user_ids)
         return build_embed(rec, participants, names)
 
     async def refresh(self, recruitment_id: int) -> None:

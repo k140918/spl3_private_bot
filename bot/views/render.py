@@ -9,7 +9,7 @@ import discord
 from bot.models import Mode, Participant, ParticipantStatus, Recruitment
 from bot.services.deadline import format_deadline
 from bot.views.buttons import RecruitButton
-from bot.views.member_names import UNKNOWN_NAME
+from bot.views.member_names import UNKNOWN_NAME, sanitize_name
 
 _HOW_TO_JOIN = {
     Mode.BUTTON: "「参加する」ボタンで参加\n取り消し: 「参加取消」ボタン / `/取消`",
@@ -31,6 +31,12 @@ def _format_start(start_time: str) -> str:
     return start_time if start_time.endswith(("～", "〜", "~")) else f"{start_time}～"
 
 
+def _display_name(p: Participant, names: Mapping[int, str]) -> str:
+    if p.guest_name is not None:  # サーバーにいない人（名前だけで登録）
+        return f"{sanitize_name(p.guest_name)}（ゲスト）"
+    return names.get(p.user_id, UNKNOWN_NAME)
+
+
 def build_embed(
     rec: Recruitment, participants: list[Participant], names: Mapping[int, str]
 ) -> discord.Embed:
@@ -45,10 +51,10 @@ def build_embed(
         lines.append(f"⏳ 締切 {format_deadline(rec.deadline_at)}")
     lines.append(f"👥 参加者 {len(joined)}/{rec.capacity}")
     # Embed 内の <@ID> は閲覧者のクライアント次第で ID のまま表示されるため、表示名を直接書く
-    lines.extend(f"・{names.get(p.user_id, UNKNOWN_NAME)}" for p in joined)
+    lines.extend(f"・{_display_name(p, names)}" for p in joined)
     if waitlist:
         lines.append(f"\n📝 補欠 {len(waitlist)}")
-        lines.extend(f"・{names.get(p.user_id, UNKNOWN_NAME)}" for p in waitlist)
+        lines.extend(f"・{_display_name(p, names)}" for p in waitlist)
 
     title = f"🎮 {rec.title}"
     if not rec.is_open:

@@ -48,6 +48,7 @@ def _to_participant(row: Any) -> Participant:
         status=ParticipantStatus(row["status"]),
         source=Source(row["source"]),
         joined_at=row["joined_at"],
+        guest_name=row["guest_name"],
     )
 
 
@@ -164,7 +165,7 @@ class RecruitmentRepository:
 
     async def list_participants(self, recruitment_id: int) -> list[Participant]:
         async with self._conn.execute(
-            "SELECT recruitment_id, user_id, status, source, joined_at FROM participants "
+            "SELECT recruitment_id, user_id, status, source, joined_at, guest_name FROM participants "
             "WHERE recruitment_id = ? ORDER BY joined_at, id",
             (recruitment_id,),
         ) as cur:
@@ -178,13 +179,15 @@ class RecruitmentRepository:
         status: ParticipantStatus,
         source: Source,
         joined_at: str,
+        guest_name: str | None = None,
     ) -> bool:
         """追加できたら True。既に登録済み（UNIQUE違反）なら False。"""
         try:
             await self._write(
-                "INSERT INTO participants (recruitment_id, user_id, status, source, joined_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (recruitment_id, user_id, status.value, source.value, joined_at),
+                "INSERT INTO participants "
+                "(recruitment_id, user_id, status, source, joined_at, guest_name) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (recruitment_id, user_id, status.value, source.value, joined_at, guest_name),
             )
         except sqlite3.IntegrityError:
             return False

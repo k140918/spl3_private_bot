@@ -11,7 +11,14 @@ from discord.ext import commands
 
 from bot.models import Mode, Outcome, Recruitment, RecruitStatus, Source
 from bot.services.deadline import DeadlineError, format_deadline, parse_deadline
-from bot.services.recruitment_service import ChannelBusyError, to_iso, utcnow
+from bot.services.recruitment_service import (
+    GUEST_NAME_MAX,
+    ChannelBusyError,
+    normalize_guest_name,
+    to_iso,
+    utcnow,
+)
+from bot.views.member_names import sanitize_name
 from bot.views.render import build_view
 
 if TYPE_CHECKING:
@@ -169,20 +176,30 @@ class RecruitCommands(commands.Cog):
         name="取消", description="プラベ募集への参加を取り消します（募集作成者は他の参加者も取り消せます）"
     )
     @app_commands.guild_only()
-    @app_commands.rename(user="ユーザー", recruitment_id="募集")
+    @app_commands.rename(user="ユーザー", guest="ゲスト", recruitment_id="募集")
     @app_commands.describe(
         user="取り消す参加者（省略時: 自分）",
+        guest="取り消すゲスト（サーバーにいない人）の名前",
         recruitment_id="対象の募集（このチャンネルの受付中の募集が1件だけなら省略可）",
     )
     async def cancel_participation(
         self,
         interaction: discord.Interaction,
         user: discord.User | None = None,
+        guest: str | None = None,
         recruitment_id: int | None = None,
     ) -> None:
         rec = await self._resolve_recruitment(interaction, recruitment_id)
         if isinstance(rec, str):
             await interaction.response.send_message(rec, ephemeral=True)
+            return
+        if guest is not None:
+            if user is not None:
+                await interaction.response.send_message(
+                    "「ユーザー」か「ゲスト」のどちらか一方を指定してください。", ephemeral=True
+                )
+                return
+            await self._remove_guest(interaction, rec, guest)
             return
 
         target = user or interaction.user
@@ -211,6 +228,42 @@ class RecruitCommands(commands.Cog):
                 )
             await self.bot.updater.refresh(rec.id)
 
+    async def _remove_guest(
+        self, interaction: discord.Interaction, rec: Recruitment, guest: str
+    ) -> None:
+        if not _can_manage(interaction, rec):
+            await interaction.response.send_message(
+                "ゲストを取り消せるのは募集作成者か「メッセージの管理」権限を持つ人だけです。",
+                ephemeral=True,
+            )
+            return
+        label = sanitize_name(normalize_guest_name(guest) or "")
+        outcome = await self.bot.service.remove_guest(rec.id, guest)
+        replies = {
+            Outcome.LEFT: f"{label}（ゲスト）の参加を取り消しました。",
+            Outcome.NOT_JOINED: f"{label}（ゲスト）はこの募集に参加していません。",
+            Outcome.NOT_OPEN: "この募集は終了しています。",
+            Outcome.NOT_FOUND: "募集が見つかりません。",
+        }
+        await interaction.response.send_message(replies[outcome], ephemeral=True)
+        if outcome is Outcome.LEFT:
+            log.info("manual guest removal recruitment=%s by=%s", rec.id, interaction.user.id)
+            await self.bot.updater.refresh(rec.id)
+
+    @cancel_participation.autocomplete("guest")
+    async def _guest_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """このチャンネルの受付中の募集にいるゲスト名を候補に出す。"""
+        if interaction.channel_id is None:
+            return []
+        names: list[str] = []
+        for r in await self.bot.service.list_open_in_channel(interaction.channel_id):
+            for p in await self.bot.service.list_participants(r.id):
+                if p.guest_name and p.guest_name not in names and current in p.guest_name:
+                    names.append(p.guest_name)
+        return [app_commands.Choice(name=n, value=n) for n in names[:25]]
+
     @cancel_participation.autocomplete("recruitment_id")
     async def _recruitment_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -226,17 +279,26 @@ class RecruitCommands(commands.Cog):
         name="追加", description="プラベ募集に参加者を手動で追加します（募集作成者のみ）"
     )
     @app_commands.guild_only()
-    @app_commands.rename(user="ユーザー", recruitment_id="募集")
+    @app_commands.rename(user="ユーザー", guest="ゲスト", recruitment_id="募集")
     @app_commands.describe(
-        user="追加する人",
+        user="追加する人（サーバーのメンバー）",
+        guest="サーバーにいない人の名前（ユーザーの代わりに指定）",
         recruitment_id="対象の募集（このチャンネルの受付中の募集が1件だけなら省略可）",
     )
     async def add_participant(
         self,
         interaction: discord.Interaction,
-        user: discord.User,
+        user: discord.User | None = None,
+        guest: app_commands.Range[str, 1, GUEST_NAME_MAX] | None = None,
         recruitment_id: int | None = None,
     ) -> None:
+        if (user is None) == (guest is None):
+            await interaction.response.send_message(
+                "「ユーザー」か「ゲスト」のどちらか一方を指定してください。\n"
+                "サーバーにいない人は「ゲスト」に名前を入れると追加できます。",
+                ephemeral=True,
+            )
+            return
         rec = await self._resolve_recruitment(interaction, recruitment_id)
         if isinstance(rec, str):
             await interaction.response.send_message(rec, ephemeral=True)
@@ -247,6 +309,10 @@ class RecruitCommands(commands.Cog):
                 ephemeral=True,
             )
             return
+        if guest is not None:
+            await self._add_guest(interaction, rec, guest)
+            return
+        assert user is not None
         if user.bot:
             await interaction.response.send_message("Botは追加できません。", ephemeral=True)
             return
@@ -263,6 +329,27 @@ class RecruitCommands(commands.Cog):
         if outcome is Outcome.JOINED:
             log.info("manual add recruitment=%s target=%s by=%s", rec.id, user.id, interaction.user.id)
             self.bot.member_names.remember(interaction.guild_id, user)
+            await self.bot.updater.refresh(rec.id)
+
+    async def _add_guest(
+        self, interaction: discord.Interaction, rec: Recruitment, guest: str
+    ) -> None:
+        name = normalize_guest_name(guest)
+        if not name:
+            await interaction.response.send_message("ゲストの名前を入力してください。", ephemeral=True)
+            return
+        label = sanitize_name(name)
+        outcome = await self.bot.service.add_guest(rec.id, name)
+        replies = {
+            Outcome.JOINED: f"{label}（ゲスト）を参加者に追加しました。",
+            Outcome.ALREADY_JOINED: f"{label}（ゲスト）はすでに参加しています。",
+            Outcome.FULL: "満員のため追加できません。",
+            Outcome.NOT_OPEN: "この募集は終了しています。",
+            Outcome.NOT_FOUND: "募集が見つかりません。",
+        }
+        await interaction.response.send_message(replies[outcome], ephemeral=True)
+        if outcome is Outcome.JOINED:
+            log.info("manual guest add recruitment=%s by=%s", rec.id, interaction.user.id)
             await self.bot.updater.refresh(rec.id)
 
     @add_participant.autocomplete("recruitment_id")
@@ -374,13 +461,22 @@ class RecruitCommands(commands.Cog):
             )
             return
 
+        guests = {
+            p.user_id: f"{sanitize_name(p.guest_name)}（ゲスト）"
+            for p in await self.bot.service.list_participants(source.id)
+            if p.guest_name is not None
+        }
+
+        def labels(user_ids: list[int]) -> str:
+            return " ".join(guests.get(u, f"<@{u}>") for u in user_ids)
+
         lines = [f"募集 #{source.id} から {len(result.added)}人を追加しました。"]
         if result.added:
-            lines.append("追加: " + " ".join(f"<@{u}>" for u in result.added))
+            lines.append("追加: " + labels(result.added))
         if result.already_joined:
             lines.append(f"参加済みのためスキップ: {len(result.already_joined)}人")
         if result.full:
-            lines.append("定員のため追加できなかった人: " + " ".join(f"<@{u}>" for u in result.full))
+            lines.append("定員のため追加できなかった人: " + labels(result.full))
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
         if result.added:
             await self.bot.updater.refresh(target.id)
