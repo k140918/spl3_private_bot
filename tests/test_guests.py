@@ -93,7 +93,7 @@ async def test_embed_shows_guest_label_and_escapes(service):
     parts = await service.list_participants(rec.id)
     embed = build_embed(rec, parts, {CREATOR: "募集主"})
     assert "・募集主" in embed.description
-    assert r"・\*\*太字\*\*さん（ゲスト）" in embed.description
+    assert r"・\*\*太字\*\*さん（新規）" in embed.description
     assert "<@" not in embed.description
 
 
@@ -112,7 +112,7 @@ async def test_updater_does_not_look_up_guests(service):
     updater = RecruitMessageUpdater(SimpleNamespace(), service, FakeNames())
     embed = await updater.build_embed(rec, await service.list_participants(rec.id))
     assert asked == [[CREATOR]]
-    assert "フォロワーA（ゲスト）" in embed.description
+    assert "フォロワーA（新規）" in embed.description
 
 
 async def test_migration_from_v2_adds_guest_column(tmp_path):

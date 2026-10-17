@@ -19,7 +19,7 @@ from bot.services.recruitment_service import (
     utcnow,
 )
 from bot.views.member_names import sanitize_name
-from bot.views.render import build_view
+from bot.views.render import GUEST_LABEL, build_view
 
 if TYPE_CHECKING:
     from bot.main import RecruitBot
@@ -240,8 +240,8 @@ class RecruitCommands(commands.Cog):
         label = sanitize_name(normalize_guest_name(guest) or "")
         outcome = await self.bot.service.remove_guest(rec.id, guest)
         replies = {
-            Outcome.LEFT: f"{label}（ゲスト）の参加を取り消しました。",
-            Outcome.NOT_JOINED: f"{label}（ゲスト）はこの募集に参加していません。",
+            Outcome.LEFT: f"{label}{GUEST_LABEL}の参加を取り消しました。",
+            Outcome.NOT_JOINED: f"{label}{GUEST_LABEL}はこの募集に参加していません。",
             Outcome.NOT_OPEN: "この募集は終了しています。",
             Outcome.NOT_FOUND: "募集が見つかりません。",
         }
@@ -341,8 +341,8 @@ class RecruitCommands(commands.Cog):
         label = sanitize_name(name)
         outcome = await self.bot.service.add_guest(rec.id, name)
         replies = {
-            Outcome.JOINED: f"{label}（ゲスト）を参加者に追加しました。",
-            Outcome.ALREADY_JOINED: f"{label}（ゲスト）はすでに参加しています。",
+            Outcome.JOINED: f"{label}{GUEST_LABEL}を参加者に追加しました。",
+            Outcome.ALREADY_JOINED: f"{label}{GUEST_LABEL}はすでに参加しています。",
             Outcome.FULL: "満員のため追加できません。",
             Outcome.NOT_OPEN: "この募集は終了しています。",
             Outcome.NOT_FOUND: "募集が見つかりません。",
@@ -462,7 +462,7 @@ class RecruitCommands(commands.Cog):
             return
 
         guests = {
-            p.user_id: f"{sanitize_name(p.guest_name)}（ゲスト）"
+            p.user_id: f"{sanitize_name(p.guest_name)}{GUEST_LABEL}"
             for p in await self.bot.service.list_participants(source.id)
             if p.guest_name is not None
         }

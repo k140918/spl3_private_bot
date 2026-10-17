@@ -23,6 +23,9 @@ _HOW_TO_JOIN = {
     ),
 }
 
+# サーバーにいない人（名前だけで登録）の名前の後ろに付ける表示
+GUEST_LABEL = "（新規）"
+
 COLOR_OPEN = discord.Colour.from_rgb(25, 215, 25)
 COLOR_CLOSED = discord.Colour.light_grey()
 
@@ -33,7 +36,7 @@ def _format_start(start_time: str) -> str:
 
 def _display_name(p: Participant, names: Mapping[int, str]) -> str:
     if p.guest_name is not None:  # サーバーにいない人（名前だけで登録）
-        return f"{sanitize_name(p.guest_name)}（ゲスト）"
+        return f"{sanitize_name(p.guest_name)}{GUEST_LABEL}"
     return names.get(p.user_id, UNKNOWN_NAME)
 
 
