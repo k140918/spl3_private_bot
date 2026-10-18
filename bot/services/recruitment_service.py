@@ -41,6 +41,18 @@ class CarryOverResult:
 
 
 GUEST_NAME_MAX = 32
+DESCRIPTION_MAX = 1000
+
+
+def normalize_description(text: str) -> str | None:
+    """募集文を保存用に整える。行末の空白と3行以上続く空行を詰め、空なら None。"""
+    lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
+    out: list[str] = []
+    for line in lines:
+        if not line and len(out) >= 1 and not out[-1] and (len(out) < 2 or not out[-2]):
+            continue  # 空行は2行まで
+        out.append(line)
+    return "\n".join(out).strip()[:DESCRIPTION_MAX] or None
 
 
 def normalize_guest_name(name: str) -> str | None:
@@ -130,6 +142,19 @@ class RecruitmentService:
             await self._repo.update_status(recruitment_id, status, self._now())
         self._locks.pop(recruitment_id, None)
         log.info("recruitment status changed id=%s status=%s", recruitment_id, status.value)
+
+    async def set_description(self, recruitment_id: int, text: str) -> Outcome:
+        """募集文を設定する。空文字なら削除。受付中の募集のみ。"""
+        description = normalize_description(text)
+        async with self.lock(recruitment_id):
+            rec = await self._repo.get(recruitment_id)
+            if rec is None:
+                return Outcome.NOT_FOUND
+            if not rec.is_open:
+                return Outcome.NOT_OPEN
+            await self._repo.set_description(recruitment_id, description)
+        log.info("description set id=%s length=%d", recruitment_id, len(description or ""))
+        return Outcome.JOINED  # 「成功」の意味で使う
 
     async def set_deadline(self, recruitment_id: int, deadline: datetime) -> None:
         async with self.lock(recruitment_id):

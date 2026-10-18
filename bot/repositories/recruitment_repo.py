@@ -19,7 +19,7 @@ from bot.models import (
 
 _RECRUIT_COLS = (
     "id, guild_id, channel_id, message_id, creator_user_id, title, mode, capacity, "
-    "start_time, status, created_at, closed_at, deadline_at"
+    "start_time, status, created_at, closed_at, deadline_at, description"
 )
 
 
@@ -38,6 +38,7 @@ def _to_recruitment(row: Any) -> Recruitment:
         created_at=row["created_at"],
         closed_at=row["closed_at"],
         deadline_at=row["deadline_at"],
+        description=row["description"],
     )
 
 
@@ -102,6 +103,11 @@ class RecruitmentRepository:
     async def set_message_id(self, recruitment_id: int, message_id: int) -> None:
         await self._write(
             "UPDATE recruitments SET message_id = ? WHERE id = ?", (message_id, recruitment_id)
+        )
+
+    async def set_description(self, recruitment_id: int, description: str | None) -> None:
+        await self._write(
+            "UPDATE recruitments SET description = ? WHERE id = ?", (description, recruitment_id)
         )
 
     async def set_deadline(self, recruitment_id: int, deadline_at: str | None) -> None:

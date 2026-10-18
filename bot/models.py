@@ -67,6 +67,7 @@ class Recruitment:
     created_at: str
     closed_at: str | None = None
     deadline_at: str | None = None  # UTC ISO8601。None なら作成からの経過時間で自動終了
+    description: str | None = None  # 募集文（/募集文 で設定）
 
     @property
     def is_open(self) -> bool:

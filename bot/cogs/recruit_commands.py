@@ -1,4 +1,4 @@
-"""/プラベ（募集作成）、/取消（参加取消）、/追加、/締切、/引き継ぎ。"""
+"""/プラベ（募集作成）、/取消（参加取消）、/追加、/募集文、/締切、/引き継ぎ。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from bot.services.recruitment_service import (
     utcnow,
 )
 from bot.views.member_names import sanitize_name
+from bot.views.description_modal import DescriptionModal
 from bot.views.render import GUEST_LABEL, build_view
 
 if TYPE_CHECKING:
@@ -354,6 +355,38 @@ class RecruitCommands(commands.Cog):
 
     @add_participant.autocomplete("recruitment_id")
     async def _add_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        return await self._recruitment_autocomplete(interaction, current)
+
+    # ---------------- /募集文 ----------------
+
+    @app_commands.command(
+        name="募集文", description="募集メッセージに載せる募集文を入力・修正します（募集作成者のみ）"
+    )
+    @app_commands.guild_only()
+    @app_commands.rename(recruitment_id="募集")
+    @app_commands.describe(
+        recruitment_id="対象の募集（このチャンネルの受付中の募集が1件だけなら省略可）",
+    )
+    async def edit_description(
+        self, interaction: discord.Interaction, recruitment_id: int | None = None
+    ) -> None:
+        rec = await self._resolve_recruitment(interaction, recruitment_id)
+        if isinstance(rec, str):
+            await interaction.response.send_message(rec, ephemeral=True)
+            return
+        if not _can_manage(interaction, rec):
+            await interaction.response.send_message(
+                "募集文を編集できるのは募集作成者か「メッセージの管理」権限を持つ人だけです。",
+                ephemeral=True,
+            )
+            return
+        # 今の募集文を入れた状態でフォームを開く（あとから修正できる）
+        await interaction.response.send_modal(DescriptionModal(rec.id, rec.description))
+
+    @edit_description.autocomplete("recruitment_id")
+    async def _description_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[int]]:
         return await self._recruitment_autocomplete(interaction, current)

@@ -48,6 +48,8 @@ def build_embed(
     waitlist = [p for p in participants if p.status is ParticipantStatus.WAITLIST]
 
     lines: list[str] = []
+    if rec.description:  # 募集文（Embed 内なので @everyone 等を書いても通知されない）
+        lines.extend([rec.description, ""])
     if rec.start_time:
         lines.append(f"⏰ {_format_start(rec.start_time)}")
     if rec.deadline_at:
