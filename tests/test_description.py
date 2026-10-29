@@ -43,14 +43,14 @@ async def test_embed_shows_description_above_details(service):
     await service.set_description(rec.id, "初心者歓迎\nVCなしOK")
     rec = await service.get(rec.id)
     embed = build_embed(rec, await service.list_participants(rec.id), {CREATOR: "募集主"})
-    assert embed.description.startswith("初心者歓迎\nVCなしOK\n\n⏰ 21:00～")
+    assert embed.description.startswith("初心者歓迎\nVCなしOK\n\n⏰ 開始予定：21:00～")
     assert "・募集主" in embed.description
 
 
 async def test_embed_without_description_is_unchanged(service):
     rec = await make_recruitment(service, start_time="21:00")
     embed = build_embed(rec, await service.list_participants(rec.id), {CREATOR: "募集主"})
-    assert embed.description.startswith("⏰ 21:00～")
+    assert embed.description.startswith("⏰ 開始予定：21:00～")
 
 
 async def test_modal_prefills_current_description():

@@ -21,6 +21,7 @@ from bot.services.recruitment_service import (
 from bot.views.member_names import sanitize_name
 from bot.views.description_modal import DescriptionModal
 from bot.views.bulk_add import BulkAddView
+from bot.views.permissions import can_manage
 from bot.views.render import GUEST_LABEL, build_view
 
 if TYPE_CHECKING:
@@ -58,9 +59,7 @@ def _missing_permissions(
     return missing
 
 
-def _can_manage(interaction: discord.Interaction, rec: Recruitment) -> bool:
-    """募集作成者か「メッセージの管理」権限を持つ人。"""
-    return interaction.user.id == rec.creator_user_id or interaction.permissions.manage_messages
+_can_manage = can_manage  # 管理パネルと同じ判定を使う
 
 
 def _choices(
@@ -94,6 +93,12 @@ class RecruitCommands(commands.GroupCog, group_name="プラベ", group_descripti
         assert self.__cog_app_commands_group__ is not None
         for command in self.__cog_app_commands_group__.commands:
             embed.add_field(name=f"/{command.qualified_name}", value=command.description, inline=False)
+        embed.add_field(
+            name="スマホでの管理",
+            value="募集メッセージの「⚙️ 管理」ボタンから、コマンドを打たずに"
+            "メンバー追加・新規追加・参加者を外す・募集文・締切・引き継ぎができます。",
+            inline=False,
+        )
         embed.add_field(
             name="操作できる人",
             value="募集・ヘルプ・自分の参加取消は誰でも使えます。\n"

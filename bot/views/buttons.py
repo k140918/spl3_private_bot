@@ -1,4 +1,4 @@
-"""参加/取消ボタン。
+"""参加/取消/管理ボタン。
 
 DynamicItem を使い custom_id（recruit:join:<募集ID>）から復元するので、
 Bot を再起動しても既存の募集メッセージのボタンがそのまま動く。
@@ -32,7 +32,7 @@ BUTTON_REPLIES: dict[Outcome, str] = {
 
 class RecruitButton(
     discord.ui.DynamicItem[discord.ui.Button[Any]],
-    template=r"recruit:(?P<action>join|leave):(?P<rid>[0-9]+)",
+    template=r"recruit:(?P<action>join|leave|manage):(?P<rid>[0-9]+)",
 ):
     def __init__(self, action: str, recruitment_id: int) -> None:
         self.action = action
@@ -42,10 +42,15 @@ class RecruitButton(
                 label="参加する", style=discord.ButtonStyle.success, emoji="🙋",
                 custom_id=f"recruit:join:{recruitment_id}",
             )
-        else:
+        elif action == "leave":
             button = discord.ui.Button(
                 label="参加取消", style=discord.ButtonStyle.secondary,
                 custom_id=f"recruit:leave:{recruitment_id}",
+            )
+        else:  # 募集管理者用の操作パネルを開く（スマホでコマンドを打たずに済むように）
+            button = discord.ui.Button(
+                label="管理", style=discord.ButtonStyle.secondary, emoji="⚙️",
+                custom_id=f"recruit:manage:{recruitment_id}",
             )
         super().__init__(button)
 
@@ -60,6 +65,11 @@ class RecruitButton(
 
     async def callback(self, interaction: discord.Interaction) -> None:
         bot = cast("RecruitBot", interaction.client)
+        if self.action == "manage":
+            from bot.views.manage_panel import open_panel  # render → buttons の循環 import を避ける
+
+            await open_panel(bot, interaction, self.recruitment_id)
+            return
         bot.member_names.remember(interaction.guild_id, interaction.user)
         if self.action == "join":
             outcome = await bot.service.join(self.recruitment_id, interaction.user.id, Source.BUTTON)

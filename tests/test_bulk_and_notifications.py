@@ -139,9 +139,9 @@ def test_time_labels_without_deadline():
     rec = Recruitment(1, 1, 100, 123, CREATOR, "募集", Mode.BUTTON, 8, None,
                       RecruitStatus.OPEN, "2026-10-29T00:00:00+00:00")
     embed = build_embed(rec, [], {})
-    assert "開始予定：未定" in embed.description
-    assert "参加受付終了" not in embed.description
+    assert "開始予定" not in embed.description  # 未定なら行ごと省く
+    assert "受付締切" not in embed.description
     scheduled = replace(rec, start_time="20:00", deadline_at="2026-10-29T12:00:00+00:00")
     description = build_embed(scheduled, [], {}).description
     assert "開始予定：20:00～" in description
-    assert "参加受付終了：10/29(木) 21:00（開始時刻ではありません）" in description
+    assert "⏳ 受付締切：10/29(木) 21:00" in description

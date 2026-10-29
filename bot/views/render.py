@@ -11,16 +11,10 @@ from bot.services.deadline import format_deadline
 from bot.views.buttons import RecruitButton
 from bot.views.member_names import UNKNOWN_NAME, sanitize_name
 
+# スマホで縦に長くならないよう短く。ボタン方式はボタンを見れば分かるので載せない
 _HOW_TO_JOIN = {
-    Mode.BUTTON: "「参加する」ボタンで参加\n取り消し: 「参加取消」ボタン / `/プラベ 参加取消`",
-    Mode.MESSAGE: (
-        "チャットで「ノ」「行く」などと発言すると参加（AI判定・✅が付きます）\n"
-        "取り消し: 「やっぱ無理」などと発言 / `/プラベ 参加取消`"
-    ),
-    Mode.BOTH: (
-        "ボタン、またはチャットで「ノ」「行く」などと発言（AI判定・✅が付きます）\n"
-        "取り消し: 「参加取消」ボタン / 発言 / `/プラベ 参加取消`"
-    ),
+    Mode.MESSAGE: "「ノ」「行く」などと発言で参加（✅が付きます）\n取り消しは「やっぱ無理」などと発言",
+    Mode.BOTH: "ボタン、または「ノ」「行く」などと発言で参加（✅が付きます）",
 }
 
 # サーバーにいない人（名前だけで登録）の名前の後ろに付ける表示
@@ -50,12 +44,10 @@ def build_embed(
     lines: list[str] = []
     if rec.description:  # 募集文（Embed 内なので @everyone 等を書いても通知されない）
         lines.extend([rec.description, ""])
-    if rec.start_time:
+    if rec.start_time:  # 未定のときは行ごと省く
         lines.append(f"⏰ 開始予定：{_format_start(rec.start_time)}")
-    else:
-        lines.append("⏰ 開始予定：未定")
     if rec.deadline_at:
-        lines.append(f"⏳ 参加受付終了：{format_deadline(rec.deadline_at)}（開始時刻ではありません）")
+        lines.append(f"⏳ 受付締切：{format_deadline(rec.deadline_at)}")
     lines.append(f"👥 参加者 {len(joined)}/{rec.capacity}")
     # Embed 内の <@ID> は閲覧者のクライアント次第で ID のまま表示されるため、表示名を直接書く
     lines.extend(f"・{_display_name(p, names)}" for p in joined)
@@ -71,16 +63,19 @@ def build_embed(
         description="\n".join(lines),
         colour=COLOR_OPEN if rec.is_open else COLOR_CLOSED,
     )
-    if rec.is_open:
+    if rec.is_open and rec.mode in _HOW_TO_JOIN:
         embed.add_field(name="参加方法", value=_HOW_TO_JOIN[rec.mode], inline=False)
     embed.set_footer(text=f"募集ID: {rec.id} ｜ 使い方：/プラベ ヘルプ")
     return embed
 
 
 def build_view(rec: Recruitment) -> discord.ui.View | None:
-    if not (rec.is_open and rec.mode.uses_buttons):
+    """受付中は「⚙️ 管理」を常に付ける。参加/取消ボタンはボタン方式・両方のときだけ。"""
+    if not rec.is_open:
         return None
     view = discord.ui.View(timeout=None)
-    view.add_item(RecruitButton("join", rec.id))
-    view.add_item(RecruitButton("leave", rec.id))
+    if rec.mode.uses_buttons:
+        view.add_item(RecruitButton("join", rec.id))
+        view.add_item(RecruitButton("leave", rec.id))
+    view.add_item(RecruitButton("manage", rec.id))
     return view
