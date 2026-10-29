@@ -374,5 +374,5 @@ sudo systemctl restart splatoon-recruit-bot
 |---|---|
 | `PrivilegedIntentsRequired` で起動しない | Developer Portal で MESSAGE CONTENT INTENT を ON にする（または `GEMINI_API_KEY` を空にする） |
 | コマンドが出てこない | グローバル同期は反映に時間がかかることがある。開発中は `DEV_GUILD_ID` を使う |
-| テスト用サーバーでコマンドが2重に表示される | `DEV_GUILD_ID` で登録したギルドコマンドと、本番のグローバルコマンドが両方表示されている。テスト用サーバーと本番サーバーは分けて使う |
+| テスト用サーバーでコマンドが2重に表示される / 古いコマンドが残っている（ログに `CommandSignatureMismatch`） | `DEV_GUILD_ID` で登録したサーバー専用コマンドが、本番のグローバル登録とは別に残っている。`python -m scripts.clear_guild_commands <サーバーID>` で削除する（Gateway に接続しないので、VPS の Bot と同時に実行してよい） |
 | メッセージ方式で反応しない | Bot に「リアクションの追加」「メッセージ履歴を読む」の権限があるか確認する。ログに `Gemini API error` が出ていないか確認する |
