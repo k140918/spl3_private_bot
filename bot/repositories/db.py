@@ -7,7 +7,7 @@ from pathlib import Path
 import aiosqlite
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 async def connect(path: Path | str) -> aiosqlite.Connection:
@@ -45,4 +45,7 @@ async def migrate(conn: aiosqlite.Connection) -> None:
         await conn.execute("ALTER TABLE recruitments ADD COLUMN description TEXT")
         await conn.execute("PRAGMA user_version = 4")
         await conn.commit()
-    # 将来スキーマを変える場合は if version < 5: ... を追加する
+    if version < 5:
+        await conn.execute("ALTER TABLE recruitments ADD COLUMN full_notified INTEGER NOT NULL DEFAULT 0")
+        await conn.execute("PRAGMA user_version = 5")
+        await conn.commit()

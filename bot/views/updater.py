@@ -50,6 +50,19 @@ class RecruitMessageUpdater:
             try:
                 embed = await self.build_embed(rec, participants)
                 await message.edit(embed=embed, view=build_view(rec))
+                if await self._service.claim_full_notification(rec.id):
+                    try:
+                        await self._client.get_partial_messageable(rec.channel_id).send(
+                            f"<@{rec.creator_user_id}> 募集が満員になりました！\n"
+                            f"https://discord.com/channels/{rec.guild_id}/{rec.channel_id}/{rec.message_id}",
+                            allowed_mentions=discord.AllowedMentions(
+                                users=[discord.Object(id=rec.creator_user_id)],
+                                roles=False, everyone=False, replied_user=False,
+                            ),
+                        )
+                    except discord.HTTPException:
+                        await self._service.release_full_notification(rec.id)
+                        raise
             except discord.NotFound:
                 log.warning("recruit message not found; cancelling id=%s", recruitment_id)
                 if rec.is_open:

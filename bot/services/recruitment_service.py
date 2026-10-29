@@ -193,6 +193,27 @@ class RecruitmentService:
 
     # ---- 参加・取消 ----
 
+    async def join_many(self, recruitment_id: int, user_ids: list[int]) -> dict[int, Outcome]:
+        """選択順に追加。個々の参加処理で同時操作・重複・定員を検証する。"""
+        results = {}
+        for user_id in dict.fromkeys(user_ids):
+            results[user_id] = await self.join(recruitment_id, user_id, Source.COMMAND)
+        return results
+
+    async def claim_full_notification(self, recruitment_id: int) -> bool:
+        """募集につき一度だけ通知する。再起動後も送信済みを保持する。"""
+        async with self.lock(recruitment_id):
+            rec = await self._repo.get(recruitment_id)
+            if rec is None or not rec.accepts_at(self._now()) or rec.message_id is None:
+                return False
+            participants = await self._repo.list_participants(recruitment_id)
+            if sum(p.status is ParticipantStatus.JOINED for p in participants) < rec.capacity:
+                return False
+            return await self._repo.claim_full_notification(recruitment_id)
+
+    async def release_full_notification(self, recruitment_id: int) -> None:
+        await self._repo.release_full_notification(recruitment_id)
+
     async def join(self, recruitment_id: int, user_id: int, source: Source) -> Outcome:
         async with self.lock(recruitment_id):
             rec = await self._repo.get(recruitment_id)

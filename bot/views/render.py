@@ -51,9 +51,11 @@ def build_embed(
     if rec.description:  # 募集文（Embed 内なので @everyone 等を書いても通知されない）
         lines.extend([rec.description, ""])
     if rec.start_time:
-        lines.append(f"⏰ {_format_start(rec.start_time)}")
+        lines.append(f"⏰ 開始予定：{_format_start(rec.start_time)}")
+    else:
+        lines.append("⏰ 開始予定：未定")
     if rec.deadline_at:
-        lines.append(f"⏳ 締切 {format_deadline(rec.deadline_at)}")
+        lines.append(f"⏳ 参加受付終了：{format_deadline(rec.deadline_at)}（開始時刻ではありません）")
     lines.append(f"👥 参加者 {len(joined)}/{rec.capacity}")
     # Embed 内の <@ID> は閲覧者のクライアント次第で ID のまま表示されるため、表示名を直接書く
     lines.extend(f"・{_display_name(p, names)}" for p in joined)

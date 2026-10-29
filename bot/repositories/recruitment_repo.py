@@ -61,6 +61,22 @@ class RecruitmentRepository:
 
     # ---- 募集 ----
 
+    async def claim_full_notification(self, recruitment_id: int) -> bool:
+        async with self._write_lock:
+            cur = await self._conn.execute(
+                "UPDATE recruitments SET full_notified = 1 WHERE id = ? AND full_notified = 0",
+                (recruitment_id,),
+            )
+            await self._conn.commit()
+            return cur.rowcount == 1
+
+    async def release_full_notification(self, recruitment_id: int) -> None:
+        async with self._write_lock:
+            await self._conn.execute(
+                "UPDATE recruitments SET full_notified = 0 WHERE id = ?", (recruitment_id,)
+            )
+            await self._conn.commit()
+
     async def create_with_creator(
         self,
         *,

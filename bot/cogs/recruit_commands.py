@@ -20,6 +20,7 @@ from bot.services.recruitment_service import (
 )
 from bot.views.member_names import sanitize_name
 from bot.views.description_modal import DescriptionModal
+from bot.views.bulk_add import BulkAddView
 from bot.views.render import GUEST_LABEL, build_view
 
 if TYPE_CHECKING:
@@ -88,9 +89,9 @@ class RecruitCommands(commands.Cog):
     @app_commands.describe(
         mode="参加方法（省略時: ボタン）",
         capacity="定員（2〜10、省略時: 8）",
-        start_time="開始時間（例: 21:00）",
+        start_time="プラベの開始予定時刻（例: 21:00）。省略すると開始予定は未定と表示",
         title="タイトル（省略時: プラベ募集）",
-        deadline="締切時刻（例: 22:30 / 10/12 22:30）。省略時は作成から一定時間で自動終了",
+        deadline="参加受付の終了時刻（開始・プレイ終了時刻ではありません）。省略可",
     )
     @app_commands.choices(
         mode=[
@@ -360,6 +361,35 @@ class RecruitCommands(commands.Cog):
         return await self._recruitment_autocomplete(interaction, current)
 
     # ---------------- /募集文 ----------------
+
+    @app_commands.command(name="一括追加", description="複数のサーバーメンバーを選んで募集に追加します")
+    @app_commands.guild_only()
+    @app_commands.rename(recruitment_id="募集")
+    @app_commands.describe(recruitment_id="対象の募集（このチャンネルに1件だけなら省略可）")
+    async def bulk_add(
+        self, interaction: discord.Interaction, recruitment_id: int | None = None
+    ) -> None:
+        rec = await self._resolve_recruitment(interaction, recruitment_id)
+        if isinstance(rec, str):
+            await interaction.response.send_message(rec, ephemeral=True)
+            return
+        if not _can_manage(interaction, rec):
+            await interaction.response.send_message(
+                "参加者を追加できるのは募集作成者か「メッセージの管理」権限を持つ人だけです。",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            "追加するメンバーをまとめて選択してください（3分以内）。選択を確定すると追加します。\n"
+            "参加済みの人はスキップし、空き枠まで追加します。",
+            view=BulkAddView(self.bot, rec.id, interaction.user.id), ephemeral=True,
+        )
+
+    @bulk_add.autocomplete("recruitment_id")
+    async def _bulk_add_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        return await self._recruitment_autocomplete(interaction, current)
 
     @app_commands.command(
         name="募集文", description="募集メッセージに載せる募集文を入力・修正します（募集作成者のみ）"
