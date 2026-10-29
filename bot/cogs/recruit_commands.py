@@ -1,4 +1,4 @@
-"""/プラベ（募集作成）、/取消（参加取消）、/追加、/募集文、/締切、/引き継ぎ。"""
+"""/プラベ 募集（募集作成）、/プラベ 参加取消（参加取消）、/プラベ 追加、/プラベ 募集文、/プラベ 締切、/プラベ 引き継ぎ。"""
 
 from __future__ import annotations
 
@@ -75,13 +75,51 @@ def _choices(
     return choices[:25]
 
 
-class RecruitCommands(commands.Cog):
+@app_commands.guild_only()
+class RecruitCommands(commands.GroupCog, group_name="プラベ", group_description="プラベの募集・参加管理・使い方"):
     def __init__(self, bot: RecruitBot) -> None:
         self.bot = bot
 
-    # ---------------- /プラベ ----------------
+    @app_commands.command(name="ヘルプ", description="コマンド一覧とプラベ募集の使い方を表示します")
+    async def show_help(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(embed=self.build_help(), ephemeral=True)
 
-    @app_commands.command(name="プラベ", description="スプラトゥーン3のプライベートマッチ参加者を募集します")
+    def build_help(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="プラベBotの使い方",
+            description="まずは `/プラベ 募集` で募集を作成します。\n"
+            "参加する人は募集投稿のボタン、または募集方式に応じてチャットで「ノ」「行く」などと発言してください。",
+            colour=discord.Colour.green(),
+        )
+        assert self.__cog_app_commands_group__ is not None
+        for command in self.__cog_app_commands_group__.commands:
+            embed.add_field(name=f"/{command.qualified_name}", value=command.description, inline=False)
+        embed.add_field(
+            name="操作できる人",
+            value="募集・ヘルプ・自分の参加取消は誰でも使えます。\n"
+            "追加・一括追加・募集文・締切・引き継ぎ・他人の参加取消は、"
+            "対象の募集作成者か「メッセージの管理」権限を持つ人が操作できます。\n"
+            "対象の募集が複数あるときは「募集」を指定してください。",
+            inline=False,
+        )
+        embed.add_field(
+            name="時刻の意味",
+            value=f"「開始時間」はプレイ開始予定、「締切」は参加受付の終了時刻です。どちらも省略できます。\n"
+            f"締切を省略すると作成から {self.bot.settings.recruit_ttl_hours:g} 時間で自動終了します。\n"
+            "プレイ終了予定は `/プラベ 募集文` に記載してください。",
+            inline=False,
+        )
+        embed.add_field(
+            name="一括追加と通知",
+            value="一括追加は最大10人を選択でき、参加済みの人を除いて空き枠まで追加します。\n"
+            "満員時は募集者だけをメンションします（1募集につき1回）。参加ごとの通知はありません。",
+            inline=False,
+        )
+        return embed
+
+    # ---------------- /プラベ 募集 ----------------
+
+    @app_commands.command(name="募集", description="新しくプラベの参加者を募集します")
     @app_commands.guild_only()
     @app_commands.rename(
         mode="方式", capacity="定員", start_time="開始時間", title="タイトル", deadline="締切"
@@ -172,10 +210,10 @@ class RecruitCommands(commands.Cog):
         note = f"、締切: {format_deadline(rec.deadline_at)}" if rec.deadline_at else ""
         await interaction.followup.send(f"募集を作成しました（募集ID: {rec.id}{note}）", ephemeral=True)
 
-    # ---------------- /取消 ----------------
+    # ---------------- /プラベ 参加取消 ----------------
 
     @app_commands.command(
-        name="取消", description="プラベ募集への参加を取り消します（募集作成者は他の参加者も取り消せます）"
+        name="参加取消", description="自分の参加を取り消します（募集管理者は他の人も指定できます）"
     )
     @app_commands.guild_only()
     @app_commands.rename(user="ユーザー", guest="ゲスト", recruitment_id="募集")
@@ -275,10 +313,10 @@ class RecruitCommands(commands.Cog):
         recs = await self.bot.service.list_open_in_channel(interaction.channel_id)
         return _choices(recs, current)
 
-    # ---------------- /追加 ----------------
+    # ---------------- /プラベ 追加 ----------------
 
     @app_commands.command(
-        name="追加", description="プラベ募集に参加者を手動で追加します（募集作成者のみ）"
+        name="追加", description="メンバーか名前だけのゲストを1人追加します（募集管理者向け）"
     )
     @app_commands.guild_only()
     @app_commands.rename(user="ユーザー", guest="ゲスト", recruitment_id="募集")
@@ -360,9 +398,9 @@ class RecruitCommands(commands.Cog):
     ) -> list[app_commands.Choice[int]]:
         return await self._recruitment_autocomplete(interaction, current)
 
-    # ---------------- /募集文 ----------------
+    # ---------------- /プラベ 募集文 ----------------
 
-    @app_commands.command(name="一括追加", description="複数のサーバーメンバーを選んで募集に追加します")
+    @app_commands.command(name="一括追加", description="複数のサーバーメンバーをまとめて追加します（募集管理者向け）")
     @app_commands.guild_only()
     @app_commands.rename(recruitment_id="募集")
     @app_commands.describe(recruitment_id="対象の募集（このチャンネルに1件だけなら省略可）")
@@ -392,7 +430,7 @@ class RecruitCommands(commands.Cog):
         return await self._recruitment_autocomplete(interaction, current)
 
     @app_commands.command(
-        name="募集文", description="募集メッセージに載せる募集文を入力・修正します（募集作成者のみ）"
+        name="募集文", description="募集メッセージの説明文を入力・修正します（募集管理者向け）"
     )
     @app_commands.guild_only()
     @app_commands.rename(recruitment_id="募集")
@@ -421,10 +459,10 @@ class RecruitCommands(commands.Cog):
     ) -> list[app_commands.Choice[int]]:
         return await self._recruitment_autocomplete(interaction, current)
 
-    # ---------------- /締切 ----------------
+    # ---------------- /プラベ 締切 ----------------
 
     @app_commands.command(
-        name="締切", description="募集を今すぐ締め切るか、締切時刻を設定・変更します（募集作成者のみ）"
+        name="締切", description="参加受付を今すぐ終了するか、締切時刻を変更します（募集管理者向け）"
     )
     @app_commands.guild_only()
     @app_commands.rename(when="時刻", recruitment_id="募集")
@@ -456,8 +494,8 @@ class RecruitCommands(commands.Cog):
             log.info("recruitment closed manually id=%s by=%s", rec.id, interaction.user.id)
             await interaction.response.send_message(
                 f"募集（ID: {rec.id}）を締め切りました。\n"
-                f"誤って締め切った場合は、新しく `/プラベ` で募集を作り、"
-                f"`/引き継ぎ 元の募集:#{rec.id}` で参加者を戻せます。",
+                f"誤って締め切った場合は、新しく `/プラベ 募集` で募集を作り、"
+                f"`/プラベ 引き継ぎ 元の募集:#{rec.id}` で参加者を戻せます。",
                 ephemeral=True,
             )
         else:
@@ -478,10 +516,10 @@ class RecruitCommands(commands.Cog):
     ) -> list[app_commands.Choice[int]]:
         return await self._recruitment_autocomplete(interaction, current)
 
-    # ---------------- /引き継ぎ ----------------
+    # ---------------- /プラベ 引き継ぎ ----------------
 
     @app_commands.command(
-        name="引き継ぎ", description="終了した募集の参加者を、受付中の募集に追加します（募集作成者のみ）"
+        name="引き継ぎ", description="終了した募集から参加者を引き継ぎます（募集管理者向け）"
     )
     @app_commands.guild_only()
     @app_commands.rename(source_id="元の募集", target_id="先の募集")

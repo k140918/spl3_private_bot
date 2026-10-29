@@ -41,7 +41,7 @@ async def migrate(conn: aiosqlite.Connection) -> None:
         await conn.execute("PRAGMA user_version = 3")
         await conn.commit()
     if version < 4:
-        # v4: 募集文（/募集文 で設定する自由記述）
+        # v4: 募集文（/プラベ 募集文 で設定する自由記述）
         await conn.execute("ALTER TABLE recruitments ADD COLUMN description TEXT")
         await conn.execute("PRAGMA user_version = 4")
         await conn.commit()

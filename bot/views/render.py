@@ -12,14 +12,14 @@ from bot.views.buttons import RecruitButton
 from bot.views.member_names import UNKNOWN_NAME, sanitize_name
 
 _HOW_TO_JOIN = {
-    Mode.BUTTON: "「参加する」ボタンで参加\n取り消し: 「参加取消」ボタン / `/取消`",
+    Mode.BUTTON: "「参加する」ボタンで参加\n取り消し: 「参加取消」ボタン / `/プラベ 参加取消`",
     Mode.MESSAGE: (
         "チャットで「ノ」「行く」などと発言すると参加（AI判定・✅が付きます）\n"
-        "取り消し: 「やっぱ無理」などと発言 / `/取消`"
+        "取り消し: 「やっぱ無理」などと発言 / `/プラベ 参加取消`"
     ),
     Mode.BOTH: (
         "ボタン、またはチャットで「ノ」「行く」などと発言（AI判定・✅が付きます）\n"
-        "取り消し: 「参加取消」ボタン / 発言 / `/取消`"
+        "取り消し: 「参加取消」ボタン / 発言 / `/プラベ 参加取消`"
     ),
 }
 
@@ -73,7 +73,7 @@ def build_embed(
     )
     if rec.is_open:
         embed.add_field(name="参加方法", value=_HOW_TO_JOIN[rec.mode], inline=False)
-    embed.set_footer(text=f"募集ID: {rec.id}")
+    embed.set_footer(text=f"募集ID: {rec.id} ｜ 使い方：/プラベ ヘルプ")
     return embed
 
 
